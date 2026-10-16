@@ -5,6 +5,14 @@ import com.resolve.resolve_backend.issue.dto.IssueResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import java.util.Set;
+
+
 import java.util.List;
 
 @Service
@@ -68,4 +76,68 @@ public class IssueService {
                 issue.getUpdatedAt()
         );
     }
+
+
+    private static final Set<String> ALLOWED_SORT_FIELDS =
+            Set.of("id", "title", "status", "priority", "createdAt", "updatedAt");
+
+    @Transactional(readOnly = true)
+    public Page<IssueResponse> searchIssues(
+            IssueStatus status,
+            IssuePriority priority,
+            int page,
+            int size,
+            String sortBy,
+            String direction) {
+
+        if (page < 0) {
+            throw new IllegalArgumentException("Page cannot be negative.");
+        }
+
+        if (size < 1 || size > 100) {
+            throw new IllegalArgumentException("Size must be between 1 and 100.");
+        }
+
+        if (!ALLOWED_SORT_FIELDS.contains(sortBy)) {
+            throw new IllegalArgumentException("Unsupported sort field: " + sortBy);
+        }
+
+        Sort.Direction sortDirection;
+        try {
+            sortDirection = Sort.Direction.fromString(direction);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException(
+                    "Direction must be 'asc' or 'desc'.");
+        }
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(sortDirection, sortBy)
+        );
+
+        Specification<Issue> specification = (root, query, cb) -> {
+            var predicates = cb.conjunction();
+
+            if (status != null) {
+                predicates = cb.and(
+                        predicates,
+                        cb.equal(root.get("status"), status)
+                );
+            }
+
+            if (priority != null) {
+                predicates = cb.and(
+                        predicates,
+                        cb.equal(root.get("priority"), priority)
+                );
+            }
+
+            return predicates;
+        };
+
+        return issueRepository.findAll(specification, pageable)
+                .map(this::toResponse);
+    }
+
 }
